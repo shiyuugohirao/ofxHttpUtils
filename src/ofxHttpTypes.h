@@ -40,6 +40,13 @@ struct ofxHttpForm{
         formIds.push_back( id );
         formValues.push_back( value );
 	}
+
+    // ----------------------------------------------------------------------
+    void makeInsiFormField(std::string id, std::string value){
+        formIds.push_back( id );
+        formValues.push_back( value );
+    }
+
 	// ----------------------------------------------------------------------
 	void clearFormFields(){
 	    formIds.clear();
@@ -48,7 +55,8 @@ struct ofxHttpForm{
 	}
 	// ----------------------------------------------------------------------
     void addFile(std::string fieldName, const std::filesystem::path & path){
-		formFiles[fieldName] = ofToDataPath(path);
+		formFiles[fieldName] = ofToDataPath(path.string());
+        //        formFiles[fieldName] = ofToDataPath(path); //###original source
 	}
 
 	std::string getFieldValue(std::string id){

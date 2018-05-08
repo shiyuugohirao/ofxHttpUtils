@@ -121,7 +121,10 @@ class ofxHttpUtils : public ofThread{
 		//--------------------------------
 		// http utils
 		std::string generateUrl(ofxHttpForm & form);
+
+        ofxHttpResponse doForm(ofxHttpForm & form, int method);
 		ofxHttpResponse doPostForm(ofxHttpForm & form);
+        ofxHttpResponse doGetForm(ofxHttpForm & form);
 
 		std::queue<ofxHttpForm> forms;
 		std::vector<Poco::Net::HTTPCookie> cookies;

@@ -90,11 +90,15 @@ void ofxHttpUtils::threadedFunction(){
 			ofxHttpResponse response;
 	    	unlock();
 			if(form.method==OFX_HTTP_POST){
-				response = doPostForm(form);
+                response = doPostForm(form); // ###
 				ofLogVerbose("ofxHttpUtils") << "(thread running) form submitted (post): "  << form.name;
-			}else{
+            }else if(form.method==OFX_HTTP_GET){
+                response = doGetForm(form); // ###
+                ofLogVerbose("ofxHttpUtils") << "(thread running) form submitted (get): "  << form.name;
+            }else{
 				string url = generateUrl(form);
 				ofLogVerbose("ofxHttpUtils") << "form submitted (get):" << form.name;
+
 				response = getUrl(url);
 			}
     		lock();
@@ -151,6 +155,7 @@ string ofxHttpUtils::generateUrl(ofxHttpForm & form) {
     }
     return url;
 }
+
 
 // ----------------------------------------------------------------------
 ofxHttpResponse ofxHttpUtils::postData(string url, const ofBuffer & data,  string contentType){
@@ -226,105 +231,123 @@ ofxHttpResponse ofxHttpUtils::postData(string url, const ofBuffer & data,  strin
 
 // ----------------------------------------------------------------------
 ofxHttpResponse ofxHttpUtils::doPostForm(ofxHttpForm & form){
-	ofxHttpResponse response;
-    
+	return doForm(form, OFX_HTTP_POST);
+}
+
+// ----------------------------------------------------------------------
+ofxHttpResponse ofxHttpUtils::doGetForm(ofxHttpForm & form){
+    return doForm(form, OFX_HTTP_GET);
+}
+
+// ----------------------------------------------------------------------
+ofxHttpResponse ofxHttpUtils::doForm(ofxHttpForm & form, int method){
+    ofxHttpResponse response;
+
     try{
         URI uri( form.action.c_str() );
         std::string path(uri.getPathAndQuery());
         if (path.empty()) path = "/";
 
         //HTTPClientSession session(uri.getHost(), uri.getPort());
-		HTTPRequest req(HTTPRequest::HTTP_POST, path, HTTPMessage::HTTP_1_1);
-		if(auth.getUsername()!="") auth.authenticate(req);
+        HTTPRequest req(HTTPRequest::HTTP_POST, path, HTTPMessage::HTTP_1_1);
+        if(method == OFX_HTTP_POST){
+            req.setMethod(HTTPRequest::HTTP_POST);
+        }else if(method == OFX_HTTP_GET){
+            req.setMethod(HTTPRequest::HTTP_GET);
+        }else{
+            ofLogError("ofxHttpUtils") << "don't set Method";
+        }
 
-		if(sendCookies){
-			for(unsigned i=0; i<cookies.size(); i++){
-				NameValueCollection reqCookies;
-				reqCookies.add(cookies[i].getName(),cookies[i].getValue());
-				req.setCookies(reqCookies);
-			}
-		}
+        if(auth.getUsername()!="") auth.authenticate(req);
 
-		for (unsigned int i = 0; i < form.headerIds.size(); ++i) {
-			const std::string name = form.headerIds[i].c_str();
-			const std::string val = form.headerValues[i].c_str();
-			req.set(name, val);
-		}
+        if(sendCookies){
+            for(unsigned i=0; i<cookies.size(); i++){
+                NameValueCollection reqCookies;
+                reqCookies.add(cookies[i].getName(),cookies[i].getValue());
+                req.setCookies(reqCookies);
+            }
+        }
+
+        for (unsigned int i = 0; i < form.headerIds.size(); ++i) {
+            const std::string name = form.headerIds[i].c_str();
+            const std::string val = form.headerValues[i].c_str();
+            req.set(name, val);
+        }
 
 
         HTTPResponse res;
-		HTMLForm pocoForm;
-		// create the form data to send
+        HTMLForm pocoForm;
+        // create the form data to send
         if(form.formFiles.size()>0) {
-			pocoForm.setEncoding(HTMLForm::ENCODING_MULTIPART);
+            pocoForm.setEncoding(HTMLForm::ENCODING_MULTIPART);
         }
         else {
-			pocoForm.setEncoding(HTMLForm::ENCODING_URL);
+            pocoForm.setEncoding(HTMLForm::ENCODING_URL);
         }
 
-		// form values
-		for(unsigned i=0; i<form.formIds.size(); i++){
-			const std::string name = form.formIds[i].c_str();
-			const std::string val = form.formValues[i].c_str();
-			pocoForm.set(name, val);
-		}
+        // form values
+        for(unsigned i=0; i<form.formIds.size(); i++){
+            const std::string name = form.formIds[i].c_str();
+            const std::string val = form.formValues[i].c_str();
+            pocoForm.set(name, val); // <- original source
+            Poco::Net::HTMLForm::HeaderMap hm = pocoForm.setHeaderMap(name, val);
+        }
 
-		map<string,string>::iterator it;
-		for(it = form.formFiles.begin(); it!=form.formFiles.end(); it++){
-			string fileName = it->second.substr(it->second.find_last_of('/')+1);
-			ofLogVerbose("ofxHttpUtils") << "adding file: " << fileName << " path: " << it->second;
-			pocoForm.addPart(it->first,new FilePartSource(it->second));
-		}
+        map<string,string>::iterator it;
+        for(it = form.formFiles.begin(); it!=form.formFiles.end(); it++){
+            string fileName = it->second.substr(it->second.find_last_of('/')+1);
+            ofLogVerbose("ofxHttpUtils") << "adding file: " << fileName << " path: " << it->second;
+            pocoForm.addPart(it->first,new FilePartSource(it->second));
+        }
 
         pocoForm.prepareSubmit(req);
 
         ofPtr<HTTPSession> session;
         istream * rs;
         if(uri.getScheme()=="https"){
-        	HTTPSClientSession * httpsSession = new HTTPSClientSession(uri.getHost(), uri.getPort());//,context);
-        	httpsSession->setTimeout(Poco::Timespan(20,0));
+            HTTPSClientSession * httpsSession = new HTTPSClientSession(uri.getHost(), uri.getPort());//,context);
+            httpsSession->setTimeout(Poco::Timespan(20,0));
             pocoForm.write(httpsSession->sendRequest(req));
-        	rs = &httpsSession->receiveResponse(res);
-        	session = ofPtr<HTTPSession>(httpsSession);
+            rs = &httpsSession->receiveResponse(res);
+            session = ofPtr<HTTPSession>(httpsSession);
         }else{
-        	HTTPClientSession * httpSession = new HTTPClientSession(uri.getHost(), uri.getPort());
-        	httpSession->setTimeout(Poco::Timespan(20,0));
+            HTTPClientSession * httpSession = new HTTPClientSession(uri.getHost(), uri.getPort());
+            httpSession->setTimeout(Poco::Timespan(20,0));
             pocoForm.write(httpSession->sendRequest(req));
-        	rs = &httpSession->receiveResponse(res);
-        	session = ofPtr<HTTPSession>(httpSession);
+            rs = &httpSession->receiveResponse(res);
+            session = ofPtr<HTTPSession>(httpSession);
         }
 
-		response = ofxHttpResponse(res, *rs, form.action);
+        response = ofxHttpResponse(res, *rs, form.action);
 
-		if(sendCookies){
-			cookies.insert(cookies.begin(),response.cookies.begin(),response.cookies.end());
-		}
+        if(sendCookies){
+            cookies.insert(cookies.begin(),response.cookies.begin(),response.cookies.end());
+        }
 
-		if(response.status>=300 && response.status<400){
-			Poco::URI uri(req.getURI());
-			uri.resolve(res.get("Location"));
-			response.location = uri.toString();
-		}
+        if(response.status>=300 && response.status<400){
+            Poco::URI uri(req.getURI());
+            uri.resolve(res.get("Location"));
+            response.location = uri.toString();
+        }
 
-    	ofNotifyEvent(newResponseEvent, response, this);
+        ofNotifyEvent(newResponseEvent, response, this);
 
 
     }catch (Exception& exc){
-    	ofLogError("ofxHttpUtils") << "ofxHttpUtils error doPostForm -- " << form.action.c_str();
-        
+        ofLogError("ofxHttpUtils") << "ofxHttpUtils error doPostForm -- " << form.action.c_str();
+
         //ofNotifyEvent(notifyNewError, "time out", this);
 
         // for now print error, need to broadcast a response
-    	ofLogError("ofxHttpUtils") << exc.displayText();
+        ofLogError("ofxHttpUtils") << exc.displayText();
         response.status = -1;
         response.reasonForStatus = exc.displayText();
-    	ofNotifyEvent(newResponseEvent, response, this);
+        ofNotifyEvent(newResponseEvent, response, this);
 
     }
 
     return response;
 }
-
 // ----------------------------------------------------------------------
 ofxHttpResponse ofxHttpUtils::getUrl(string url){
 
